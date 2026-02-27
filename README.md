@@ -1,181 +1,218 @@
-🚀 CollabCode — Backend
+# CollabCode — Backend
 
 Production-grade real-time collaboration backend built with Express, Prisma, and Socket.io.
 
-This repository contains the backend API and real-time engine for CollabCode.
+This repository contains the backend API and real-time engine for CollabCode — a collaborative coding platform where developers create rooms, edit code simultaneously, and communicate through integrated chat.
 
-The frontend (Next.js 14) is maintained separately:
+> **Frontend Repository:** [CollabCode UI](https://github.com/Adityaranaa01/CollabCode-Frontend)
 
-👉 Frontend Repository:
-https://github.com/yourusername/collabcode-ui
+---
 
-🏗️ Architecture Overview
+## Architecture Overview
 
-CollabCode backend is a monolithic service with:
+CollabCode backend is a monolithic Express service with:
 
-REST API (Express)
+- **REST API** — Express with TypeScript
+- **WebSocket Server** — Socket.io for real-time collaboration
+- **Database** — PostgreSQL on NeonDB via Prisma ORM
+- **Authentication** — JWT-based dual-token system
+- **Plan Enforcement** — Subscription-tier resource limits
+- **Concurrency** — Optimistic version-check model
 
-WebSocket server (Socket.io)
-
-PostgreSQL database (Neon)
-
-Prisma ORM
-
-JWT-based authentication
-
-Subscription-based plan enforcement
-
-Optimistic concurrency real-time editing
-
-No microservices.
-No serverless functions.
-No third-party auth providers.
-
+No microservices. No serverless functions. No third-party auth providers.
 Built intentionally as a production-style monolith.
 
-🔐 Authentication System
+---
 
-Dual-token architecture:
+## Authentication System
 
-Access Token (15m, JWT, sent via Authorization header)
+Dual-token architecture with security-first design:
 
-Refresh Token (7d, HTTP-only cookie)
+| Token | Lifetime | Storage | Transport |
+|-------|----------|---------|-----------|
+| Access Token | 15 min | In-memory (frontend) | `Authorization` header |
+| Refresh Token | 7 days | HTTP-only cookie | Cookie (auto-sent) |
 
-Refresh token rotation
+- Refresh token **rotation** on every use
+- **Reuse detection** — revokes all sessions on stolen token replay
+- Tokens stored as **SHA-256 hashes** in the database
+- **Constant-time hash comparison** to prevent timing attacks
+- Plan-based **max active session** enforcement
 
-Reuse detection (token theft mitigation)
+---
 
-Hashed refresh tokens stored in DB
+## Database Schema
 
-Plan-based max active session enforcement
+Fully normalized relational schema with 8 models:
 
-Security-first design.
+| Model | Purpose |
+|-------|---------|
+| `SubscriptionPlan` | Defines resource limits per plan tier |
+| `User` | Auth credentials, profile, plan reference |
+| `Room` | Collaborative coding session |
+| `RoomMembership` | User-room join table with roles (OWNER / MEMBER) |
+| `RoomInvite` | Hashed invite tokens for private rooms |
+| `CodeDocument` | Persisted document state (content + version) |
+| `Message` | Chat messages within rooms |
+| `RefreshToken` | Hashed refresh tokens with expiration |
 
-🧩 Core Models
+Owner is also inserted into `RoomMembership` for consistent authorization logic across all queries.
 
-SubscriptionPlan
+---
 
-User
+## Real-Time Collaboration Engine
 
-Room
+```
+Client → room:join  → validate membership → lazy-load document → send snapshot
+Client → room:edit  → version check → apply patch → broadcast → debounced persist
+Client → room:chat  → rate limit → insert to DB → broadcast
+Disconnect → cleanup presence → persist if empty → free memory
+```
 
-RoomMembership
+- Socket.io with **JWT handshake authentication**
+- **Membership validation** on every room join
+- **Lazy in-memory document loading** (only active rooms held in memory)
+- **Optimistic concurrency** — version check, full resync on mismatch
+- **Debounced persistence** — 2.5s per-room, immediate on last disconnect
+- **Chat rate limiting** — 5 messages/sec per user
+- **Patch size cap** — 50KB max
 
-RoomInvite
+No CRDT — intentional architectural tradeoff for simplicity at the target scale (2–5 users per room).
 
-CodeDocument
+---
 
-Message
+## Plan Enforcement
 
-RefreshToken
+Resource limits enforced server-side via subscription plans:
 
-Fully normalized relational schema.
+| Limit | Scope | FREE Plan Default |
+|-------|-------|-------------------|
+| `maxRooms` | Rooms a user can own | 3 |
+| `maxMembersPerRoom` | Members per owned room | 5 |
+| `maxJoinedRooms` | Total rooms a user can join | 10 |
+| `chatRetentionDays` | Message retention period | 7 days |
+| `maxActiveSessions` | Concurrent login sessions | Unlimited |
 
-Owner is inserted into RoomMembership for consistent authorization logic.
+All limits checked inside **Prisma transactions** with **row-level locks** to prevent race conditions.
 
-⚡ Real-Time Collaboration Engine
+---
 
-Socket.io with JWT handshake auth
+## Security
 
-Membership validation on room join
+- **bcrypt** password hashing (12 rounds)
+- **Helmet** middleware for security headers
+- **Rate limiting** on auth endpoints (10 req/min per IP)
+- **Zod** input validation on all endpoints
+- **Strict CORS** — only configured frontend origin allowed
+- **HTTP-only, Secure, SameSite=Strict** cookies
+- **Payload size caps** on WebSocket messages
+- **Constant-time comparison** for token hashes
 
-Lazy in-memory document loading
+---
 
-Optimistic concurrency (version check)
+## Scaling Strategy
 
-Full snapshot persistence
+**Current:** Single-process, in-memory active room store.
 
-Per-room debounce (2.5s)
+**Scaling Path:**
 
-Immediate flush on last disconnect
+1. Add **Socket.io Redis adapter** for cross-server event broadcasting
+2. Configure **sticky sessions** so each room's state lives on one server
+3. Move to **Redis-backed document store** for fully stateless servers
+4. Extract into a **dedicated collaboration service** (long-term)
 
-Chat rate limiting (5 messages/sec)
+---
 
-No CRDT (intentional tradeoff).
+## Folder Structure
 
-🧠 Concurrency Model
-
-Version-based optimistic concurrency
-
-Full resync on version mismatch
-
-Row-level locking for room joins
-
-Prisma transactions for atomic operations
-
-Designed for small-to-medium collaborative groups (2–5 users per room).
-
-📈 Scaling Strategy
-
-Current:
-
-Single process
-
-In-memory active room store
-
-Scaling Path:
-
-Socket.io Redis adapter
-
-Sticky sessions
-
-Redis-backed document store
-
-Dedicated collaboration service (future evolution)
-
-🛡 Security Measures
-
-Bcrypt password hashing
-
-Helmet middleware
-
-Rate limiting on auth endpoints
-
-Refresh token hashing
-
-Constant-time hash comparison
-
-Strict CORS configuration
-
-Payload size caps
-
-📦 Folder Structure
+```
 src/
- ├── config/
- ├── controllers/
- ├── services/
- ├── routes/
- ├── middlewares/
- ├── sockets/
- ├── utils/
- └── server.ts
-🚀 Getting Started
+ ├── config/         # Environment validation
+ ├── controllers/    # Request handlers
+ ├── middleware/      # Auth, validation, error handling
+ ├── routes/         # Express route definitions
+ ├── services/       # Business logic
+ ├── sockets/        # Socket.io handlers + room store
+ ├── types/          # TypeScript interfaces
+ ├── utils/          # Prisma client, JWT, hashing, errors
+ ├── app.ts          # Express app configuration
+ └── server.ts       # HTTP server + Socket.io init
+prisma/
+ └── schema.prisma   # Database schema
+```
+
+---
+
+## API Reference
+
+### Auth
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/api/v1/auth/register` | Create account |
+| POST | `/api/v1/auth/login` | Login |
+| POST | `/api/v1/auth/refresh` | Rotate tokens |
+| POST | `/api/v1/auth/logout` | Logout current session |
+| POST | `/api/v1/auth/logout-all` | Revoke all sessions |
+| GET | `/api/v1/auth/me` | Get current user |
+
+### Rooms
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/api/v1/rooms` | Create room |
+| GET | `/api/v1/rooms/dashboard` | Owned + joined + public rooms |
+| GET | `/api/v1/rooms/:id` | Get room details |
+| DELETE | `/api/v1/rooms/:id` | Delete room (owner only) |
+| POST | `/api/v1/rooms/:id/join` | Join public room |
+| POST | `/api/v1/rooms/:id/invite` | Create invite (owner only) |
+| POST | `/api/v1/rooms/join-by-invite` | Join via invite token |
+| GET | `/api/v1/rooms/:id/members` | List members |
+| DELETE | `/api/v1/rooms/:id/members/:userId` | Remove member (owner only) |
+| GET | `/api/v1/rooms/:id/messages` | List messages (paginated) |
+
+### Socket Events
+
+| Event | Direction | Description |
+|-------|-----------|-------------|
+| `room:join` | Client → Server | Join room, receive snapshot |
+| `room:joined` | Server → Client | Document + version + participants |
+| `room:edit` | Bidirectional | Send/receive document patches |
+| `room:resync` | Server → Client | Full snapshot on version mismatch |
+| `room:chat` | Client → Server | Send chat message |
+| `room:new-message` | Server → Room | Broadcast chat message |
+| `room:presence` | Server → Room | Updated participant list |
+| `room:cursor-update` | Server → Room | Cursor position broadcast |
+
+---
+
+## Getting Started
+
+```bash
 npm install
 npx prisma migrate dev
 npm run dev
+```
 
-Create .env:
+Create a `.env` file:
 
+```env
 DATABASE_URL=
 JWT_SECRET=
 REFRESH_TOKEN_SECRET=
-CLIENT_URL=
-🎯 Why This Project Matters
+CLIENT_URL=http://localhost:3000
+PORT=4000
+```
 
-This backend demonstrates:
+---
 
-Production-grade JWT rotation
+## Built With
 
-Secure invite system
-
-Plan-based access enforcement
-
-Optimistic concurrency design
-
-WebSocket lifecycle management
-
-Failure mode analysis
-
-Scaling awareness
-
-Built as a system design-focused resume project.
+- [Express](https://expressjs.com/) — HTTP framework
+- [Socket.io](https://socket.io/) — Real-time engine
+- [Prisma](https://www.prisma.io/) — Type-safe ORM
+- [PostgreSQL](https://www.postgresql.org/) — Relational database
+- [NeonDB](https://neon.tech/) — Serverless PostgreSQL
+- [Zod](https://zod.dev/) — Schema validation
+- [bcrypt](https://github.com/kelektiv/node.bcrypt.js) — Password hashing
+- [Helmet](https://helmetjs.github.io/) — Security headers
