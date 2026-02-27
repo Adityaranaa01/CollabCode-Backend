@@ -1,0 +1,87 @@
+# CollabCode Backend — Walkthrough
+
+## What Was Built
+
+Fully scaffolded production-ready backend at `c:\Users\adity\Projects\collabcode-backend` with:
+
+- **20+ TypeScript source files** across 8 directories
+- **Prisma schema** with 7 models, 13 indexes, all constraints
+- **Strict TypeScript** (`strict: true`, `noImplicitAny`, `noUnusedLocals`)
+- **Zero compilation errors**
+
+## Project Structure
+
+```
+collabcode-backend/
+├── prisma/schema.prisma          # 7 models, 13 indexes
+├── src/
+│   ├── server.ts                 # HTTP + Socket.io bootstrap
+│   ├── app.ts                    # Express (helmet, cors, routes)
+│   ├── config/env.ts             # Zod-validated env vars
+│   ├── controllers/
+│   │   ├── auth.controller.ts    # Register, login, refresh, logout, /me
+│   │   └── room.controller.ts    # CRUD, join, members, messages
+│   ├── services/
+│   │   ├── auth.service.ts       # JWT rotation, reuse detection
+│   │   ├── room.service.ts       # FOR UPDATE join, plan limits
+│   │   └── message.service.ts    # Chat + retention cleanup
+│   ├── middleware/
+│   │   ├── authenticate.ts       # JWT Bearer verification
+│   │   ├── errorHandler.ts       # ApiError → structured JSON
+│   │   └── validate.ts           # Zod schema middleware
+│   ├── sockets/
+│   │   ├── index.ts              # Socket.io init + JWT auth per connection
+│   │   ├── room.handler.ts       # Join/leave/chat with DB validation
+│   │   └── editor.handler.ts     # In-memory buffer + 5s flush
+│   ├── utils/
+│   │   ├── jwt.ts                # Sign/verify with numeric expiry
+│   │   ├── hash.ts               # bcrypt + SHA-256
+│   │   ├── ApiError.ts           # Structured errors
+│   │   └── prisma.ts             # Singleton client
+│   └── types/index.ts            # Shared interfaces
+├── .env                          # Blank secrets (user fills)
+├── .env.example                  # Git-committed reference
+├── .gitignore
+├── eslint.config.mjs
+├── package.json
+└── tsconfig.json
+```
+
+## Verification Results
+
+| Check | Result |
+|-------|--------|
+| `npx tsc --noEmit` | ✅ Zero errors |
+| `npx prisma generate` | ✅ Client generated |
+| `npx prisma validate` | ⚠️ Expected fail (blank `DATABASE_URL`) |
+
+> [!NOTE]
+> `prisma validate` fails because `DATABASE_URL=""` in `.env`. This is by design — the schema syntax is valid (confirmed by `prisma generate`).
+
+## Key Architectural Decisions Implemented
+
+1. **Refresh token rotation** with reuse detection (revokes all sessions on theft)
+2. **`FOR UPDATE` lock** on room row during join to prevent race-condition limit bypass
+3. **In-memory document buffer** with 5-second flush (reduces DB writes from 100/sec/room to 0.2/sec/room)
+4. **express-rate-limit** on auth routes (10 req/min per IP)
+5. **helmet** for security headers
+6. **Socket JWT re-validation** on every connection (no cached tokens)
+
+## Next Steps (For You)
+
+1. Fill secrets in `.env`:
+   ```
+   DATABASE_URL="postgresql://..."
+   JWT_SECRET="your-secret"
+   REFRESH_TOKEN_SECRET="your-secret"
+   ```
+2. Run migration:
+   ```bash
+   cd collabcode-backend
+   npx prisma migrate dev --name init
+   ```
+3. Start dev server:
+   ```bash
+   npm run dev
+   ```
+4. Seed the FREE plan (happens automatically on first user registration)

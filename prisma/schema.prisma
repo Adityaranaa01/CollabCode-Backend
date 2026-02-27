@@ -1,0 +1,143 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum MemberRole {
+  OWNER
+  MEMBER
+}
+
+model SubscriptionPlan {
+  id                 String   @id @default(cuid())
+  name               String   @unique
+  maxRooms           Int
+  maxMembersPerRoom  Int
+  maxJoinedRooms     Int      @default(10)
+  chatRetentionDays  Int
+  maxActiveSessions  Int      @default(0)
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  users              User[]
+
+  @@map("subscription_plans")
+}
+
+model User {
+  id            String           @id @default(cuid())
+  email         String           @unique
+  passwordHash  String
+  displayName   String
+  avatarUrl     String?
+  planId        String
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
+
+  plan          SubscriptionPlan @relation(fields: [planId], references: [id], onDelete: Restrict)
+  rooms         Room[]           @relation("RoomOwner")
+  memberships   RoomMembership[]
+  messages      Message[]
+  refreshTokens RefreshToken[]
+  invites       RoomInvite[]
+
+  @@index([planId])
+  @@map("users")
+}
+
+model Room {
+  id          String           @id @default(cuid())
+  name        String
+  language    String
+  isPublic    Boolean          @default(false)
+  ownerId     String
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+
+  owner       User             @relation("RoomOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+  memberships RoomMembership[]
+  messages    Message[]
+  document    CodeDocument?
+  invites     RoomInvite[]
+
+  @@index([ownerId])
+  @@index([isPublic, createdAt])
+  @@map("rooms")
+}
+
+model RoomMembership {
+  id       String     @id @default(cuid())
+  userId   String
+  roomId   String
+  role     MemberRole @default(MEMBER)
+  joinedAt DateTime   @default(now())
+
+  user     User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  room     Room       @relation(fields: [roomId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, roomId])
+  @@index([roomId])
+  @@index([userId])
+  @@map("room_memberships")
+}
+
+model RoomInvite {
+  id         String   @id @default(cuid())
+  roomId     String
+  tokenHash  String
+  expiresAt  DateTime
+  createdBy  String
+  createdAt  DateTime @default(now())
+
+  room       Room     @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  creator    User     @relation(fields: [createdBy], references: [id], onDelete: Cascade)
+
+  @@index([roomId])
+  @@index([expiresAt])
+  @@map("room_invites")
+}
+
+model CodeDocument {
+  id        String   @id @default(cuid())
+  roomId    String   @unique
+  content   String   @default("") @db.Text
+  version   Int      @default(0)
+  updatedAt DateTime @updatedAt
+
+  room      Room     @relation(fields: [roomId], references: [id], onDelete: Cascade)
+
+  @@map("code_documents")
+}
+
+model Message {
+  id        String   @id @default(cuid())
+  content   String
+  roomId    String
+  userId    String
+  createdAt DateTime @default(now())
+
+  room      Room     @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([roomId, createdAt(sort: Desc)])
+  @@index([createdAt])
+  @@map("messages")
+}
+
+model RefreshToken {
+  id        String   @id @default(cuid())
+  tokenHash String
+  userId    String
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+  @@map("refresh_tokens")
+}
