@@ -24,3 +24,8 @@ prisma/migrations/**/migration_lock.toml
 # Logs
 *.log
 npm-debug.log*
+
+# Docs (local only)
+# Docs (local only)
+*.md
+!README.md
