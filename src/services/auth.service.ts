@@ -11,15 +11,24 @@ import { TokenPair } from "../types/index.js";
 
 export async function register(
   email: string,
+  username: string,
   password: string,
   displayName: string
 ): Promise<TokenPair> {
-  const existingUser = await prisma.user.findUnique({
+  const existingEmail = await prisma.user.findUnique({
     where: { email },
   });
 
-  if (existingUser) {
+  if (existingEmail) {
     throw ApiError.conflict("Email already registered");
+  }
+
+  const existingUsername = await prisma.user.findUnique({
+    where: { username },
+  });
+
+  if (existingUsername) {
+    throw ApiError.conflict("Username already taken");
   }
 
   let freePlan = await prisma.subscriptionPlan.findUnique({
@@ -44,6 +53,7 @@ export async function register(
   const user = await prisma.user.create({
     data: {
       email,
+      username,
       passwordHash,
       displayName,
       planId: freePlan.id,
@@ -55,22 +65,24 @@ export async function register(
 }
 
 export async function login(
-  email: string,
+  identifier: string,
   password: string
 ): Promise<TokenPair> {
+  const isEmail = identifier.includes("@");
+
   const user = await prisma.user.findUnique({
-    where: { email },
+    where: isEmail ? { email: identifier } : { username: identifier.toLowerCase() },
     include: { plan: true },
   });
 
   if (!user) {
-    throw ApiError.unauthorized("Invalid email or password");
+    throw ApiError.unauthorized("Invalid credentials");
   }
 
   const isValid = await comparePassword(password, user.passwordHash);
 
   if (!isValid) {
-    throw ApiError.unauthorized("Invalid email or password");
+    throw ApiError.unauthorized("Invalid credentials");
   }
 
   return issueTokenPair(user.id, user.email, user.plan.maxActiveSessions);

@@ -30,8 +30,8 @@ export async function register(
   next: NextFunction
 ): Promise<void> {
   try {
-    const { email, password, displayName } = req.body;
-    const tokens = await authService.register(email, password, displayName);
+    const { email, username, password, displayName } = req.body;
+    const tokens = await authService.register(email, username, password, displayName);
 
     setRefreshCookie(res, tokens.refreshToken);
 
@@ -50,8 +50,8 @@ export async function login(
   next: NextFunction
 ): Promise<void> {
   try {
-    const { email, password } = req.body;
-    const tokens = await authService.login(email, password);
+    const { identifier, password } = req.body;
+    const tokens = await authService.login(identifier, password);
 
     setRefreshCookie(res, tokens.refreshToken);
 
@@ -150,6 +150,7 @@ export async function getMe(
       select: {
         id: true,
         email: true,
+        username: true,
         displayName: true,
         avatarUrl: true,
         plan: {

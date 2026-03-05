@@ -1,0 +1,338 @@
+# CollabCode — Full Project Context
+
+> **Last updated:** 2026-03-05
+> This document is the canonical source of truth for any agent working on this project.
+
+---
+
+## 1. Project Overview
+
+**CollabCode** is a real-time collaborative code editor (think Google Docs for code). Two repos:
+
+| Repo | Path | Stack |
+|------|------|-------|
+| **Backend** | `c:\Users\adity\Projects\collabcode-backend` | Node.js, Express, Prisma (PostgreSQL), Socket.IO, TypeScript |
+| **Frontend** | `c:\Users\adity\Projects\collabcode-ui` | Next.js 14 (App Router), React, TypeScript, Tailwind CSS, Monaco Editor |
+
+**Env vars:**
+- Backend: `DATABASE_URL`, `JWT_ACCESS_SECRET`, `JWT_REFRESH_SECRET`, `CLIENT_URL`, `PORT`
+- Frontend: `NEXT_PUBLIC_API_URL` (default `http://localhost:4000`)
+
+---
+
+## 2. Backend Architecture
+
+### 2.1 Database Schema (`prisma/schema.prisma`)
+
+| Model | Key Fields | Notes |
+|-------|-----------|-------|
+| `SubscriptionPlan` | `name`, `maxRooms`, `maxMembersPerRoom`, `maxJoinedRooms`, `chatRetentionDays`, `maxActiveSessions` | Seeded: Free plan |
+| `User` | `email` (unique), `passwordHash`, `displayName`, `avatarUrl?`, `planId`, `createdAt` | Linked to plan |
+| `Room` | `name`, `language`, `isPublic`, `ownerId`, `createdAt` | Has memberships, messages, document, invites |
+| `RoomMembership` | `userId`, `roomId`, `role` (OWNER/MEMBER), `joinedAt` | Unique on [userId, roomId] |
+| `RoomInvite` | `roomId`, `tokenHash`, `expiresAt`, `createdBy` | Token is hashed |
+| `CodeDocument` | `roomId` (unique), `content` (Text), `version` (Int) | One per room |
+| `Message` | `content`, `roomId`, `userId`, `createdAt` | Indexed by [roomId, createdAt DESC] |
+| `RefreshToken` | `tokenHash`, `userId`, `expiresAt` | Multiple per user |
+
+### 2.2 REST API Routes
+
+**Auth** (`/api/v1/auth`):
+| Method | Path | Auth | Description |
+|--------|------|------|-------------|
+| POST | `/register` | No | Register → returns `accessToken`, sets refresh cookie |
+| POST | `/login` | No | Login → returns `accessToken`, sets refresh cookie |
+| POST | `/refresh` | Cookie | Refresh access token |
+| POST | `/logout` | Cookie | Revoke current refresh token |
+| POST | `/logout-all` | Bearer | Revoke all refresh tokens for user |
+| GET | `/me` | Bearer | Get user profile with plan details |
+
+**Rooms** (`/api/v1/rooms`):
+| Method | Path | Auth | Description |
+|--------|------|------|-------------|
+| POST | `/` | Bearer | Create room (name, language, isPublic?) |
+| GET | `/dashboard` | Bearer | Get owned, joined, public rooms |
+| POST | `/join-by-invite` | Bearer | Join via invite token |
+| GET | `/:id` | Bearer | Get room details |
+| DELETE | `/:id` | Bearer | Delete room (owner only) |
+| POST | `/:id/join` | Bearer | Join public room |
+| POST | `/:id/invite` | Bearer | Create invite link (owner only) |
+| GET | `/:id/members` | Bearer | List room members |
+| DELETE | `/:id/members/:userId` | Bearer | Remove member (owner only) |
+| GET | `/:id/messages` | Bearer | Get room messages |
+
+### 2.3 Socket.IO Events
+
+**Authentication:** Token sent via `socket.handshake.auth.token`, verified as JWT.
+
+**Client → Server:**
+| Event | Payload | Description |
+|-------|---------|-------------|
+| `room:join` | `roomId: string` | Join room, get initial document state |
+| `room:leave` | `roomId: string` | Leave room |
+| `room:edit` | `{ roomId, patch, version }` | Send full document snapshot |
+| `room:chat` | `{ roomId, content }` | Send chat message |
+| `room:cursor` | `{ roomId, cursor: { line, ch } }` | Send cursor position |
+
+**Server → Client:**
+| Event | Payload | Description |
+|-------|---------|-------------|
+| `room:joined` | `{ roomId, document, version, participants }` | Initial room state |
+| `room:presence` | `{ participants }` | Updated participant list |
+| `room:edit` | `{ roomId, patch, version, userId }` | Broadcast edit to others (via `socket.to()`) |
+| `room:resync` | `{ roomId, document, version }` | Full resync on version mismatch |
+| `room:new-message` | `ChatMessage` | New chat message |
+| `room:cursor-update` | `{ userId, cursor }` | Cursor position update |
+| `room:kicked` | `{ roomId }` | User was removed |
+| `error` | `{ event, message }` | Error response |
+
+> **Critical:** Server uses `socket.to(room)` for `room:edit`, which excludes the sender. The sender must optimistically increment `versionRef` after emitting.
+
+### 2.4 Backend File Structure
+
+```
+src/
+├── app.ts                  # Express app setup (cors, cookie-parser, routes)
+├── server.ts               # HTTP server + Socket.IO init
+├── config/env.ts           # Environment config with zod validation
+├── controllers/
+│   ├── auth.controller.ts  # Auth route handlers
+│   └── room.controller.ts  # Room route handlers
+├── middleware/
+│   ├── authenticate.ts     # JWT Bearer auth middleware
+│   ├── validate.ts         # Zod validation middleware
+│   └── errorHandler.ts     # Global error handler
+├── routes/
+│   ├── auth.routes.ts      # Auth route definitions
+│   ├── room.routes.ts      # Room route definitions (all behind authenticate)
+│   └── index.ts            # Route aggregator
+├── services/
+│   ├── auth.service.ts     # Auth business logic (register, login, refresh, etc.)
+│   ├── room.service.ts     # Room CRUD, dashboard, invites, members
+│   └── message.service.ts  # Message persistence
+├── sockets/
+│   ├── index.ts            # Socket.IO init + auth middleware
+│   ├── room.handler.ts     # room:join/leave/chat/cursor handlers
+│   ├── editor.handler.ts   # room:edit handler (version check, resync)
+│   └── room-store.ts       # In-memory active rooms store
+├── types/express.d.ts      # Express request type augmentation
+└── utils/
+    ├── jwt.ts              # JWT sign/verify helpers
+    ├── hash.ts             # bcrypt + crypto hash helpers
+    ├── ApiError.ts         # Custom API error class
+    └── asyncHandler.ts     # Express async error wrapper
+```
+
+---
+
+## 3. Frontend Architecture
+
+### 3.1 Pages (App Router)
+
+| Route | Files | Description |
+|-------|-------|-------------|
+| `/` | `page.tsx` | Landing page — cinematic hero, 3D editor mockup, feature sections, footer. Has Sign Up + Log In nav links with `?mode=signup`/`?mode=login` query params |
+| `/auth` | `AuthClient.tsx` | Login/signup form. Reads `?mode=` from URL. Has back link to landing. Redirects to `/dashboard` if authenticated |
+| `/dashboard` | `DashboardClient.tsx` | Main dashboard — rooms list (owned/joined/public), search, filter tabs, create room modal, user avatar dropdown, real API data |
+| `/room/[id]` | `RoomClient.tsx` | Room view — Monaco editor, real-time sync, chat, participants, share/settings modals, connection states |
+| `/profile` | `ProfileClient.tsx` | User profile — avatar, name, email, join date, current plan stats, upgrade button |
+| `/plans` | `PlansClient.tsx` | Pricing page — 3 tiers (Free $0, Pro $12, Premium $29), current plan highlighted |
+| `/privacy` | `page.tsx` | Privacy policy (static) |
+| `/terms` | `page.tsx` | Terms of service (static) |
+| `/not-found` | `not-found.tsx`, `NotFoundClient.tsx` | Custom 404 page |
+
+### 3.2 Components
+
+| Component | File | Purpose |
+|-----------|------|---------|
+| `TopBar` | `TopBar.tsx` | Room header — back arrow, logo, room name, live badge, Download button, Share button, user avatar dropdown (Profile, Room Settings, Log out) |
+| `Sidebar` | `Sidebar.tsx` | Dashboard sidebar — clickable logo (→ `/`), nav items: Rooms, Profile, Pricing, Settings (`#`), New Project button |
+| `Modal` | `Modal.tsx` | Reusable modal — backdrop, title, children, optional footer |
+| `Button` | `Button.tsx` | Styled button — variants: primary, ghost, outline. Sizes: sm, md, lg |
+| `Input` | `Input.tsx` | Styled input with icon support |
+| `RoomCard` | `RoomCard.tsx` | Room card for dashboard — gradient, name, language, member count, owner |
+| `ParticipantAvatar` | `ParticipantAvatar.tsx` | Circular avatar with initials and color |
+| `ChatMessage` | `ChatMessage.tsx` | Chat bubble with sender, time, message |
+| `Logo` | `Logo.tsx` | CollabCode logo with icon |
+| `Toggle` | `Toggle.tsx` | Toggle switch |
+| `ProtectedRoute` | `ProtectedRoute.tsx` | Auth guard — redirects to `/auth` if not authenticated |
+| `StatusBadge` | `StatusBadge.tsx` | Status indicator badge |
+| `LanguageTag` | `LanguageTag.tsx` | Language label |
+| `ConsoleOutput` | `ConsoleOutput.tsx` | Console/terminal output display |
+
+### 3.3 API Client (`src/lib/api.ts`)
+
+**Types exported:** `AuthTokens`, `UserProfile`, `Room`, `RoomOwner`, `DashboardData`, `RoomMember`, `InviteResult`, `ApiError`
+
+**`authApi`:** `register`, `login`, `refresh`, `logout`, `logoutAll`, `getMe`
+**`roomApi`:** `getDashboard`, `createRoom`, `getRoom`, `deleteRoom`, `joinRoom`, `createInvite`, `joinByInvite`, `getRoomMembers`, `removeMember`
+
+All room methods require `accessToken` as first arg. Uses `credentials: "include"` for cookies.
+
+### 3.4 Socket Client (`src/lib/socket/socketClient.ts`)
+
+Exports `createRoomSocket(accessToken)` → typed Socket.IO client. Types exported: `Participant`, `ChatMessage`, `CursorUpdateEvent`, `CollabSocket`, all event payload types.
+
+### 3.5 Hooks
+
+**`useRoomSocket(roomId)`** — manages socket connection lifecycle. Returns:
+- `document`, `version` — current doc state
+- `participants` — `Participant[]` (userId + socketId only, no display names)
+- `messages` — `ChatMessage[]`
+- `cursors` — cursor positions
+- `connectionStatus` — `"idle" | "connecting" | "connected" | "reconnecting" | "error"`
+- `sendPatch(value)` — sends full doc + optimistic version increment
+- `sendMessage(content)` — sends chat message
+- `sendCursor({ line, ch })` — throttled cursor updates (75ms)
+
+Constants: `MAX_PATCH_SIZE = 50KB`, `MAX_MESSAGE_LENGTH = 2000`, `CURSOR_THROTTLE_MS = 75`
+
+### 3.6 Auth Context (`src/contexts/AuthContext.tsx`)
+
+Provides: `accessToken`, `user` (UserProfile), `isLoading`, `isAuthenticated`, `login`, `register`, `logout`, `refreshAccessToken`
+
+- Auto-refreshes on mount via cookie
+- Periodic refresh every 13 minutes
+- Fetches user profile after each token refresh
+
+### 3.7 Design System
+
+- **Colors:** `primary` = purple (#895af6), `background-dark` = near-black, `accent-dark` for hover states
+- **Typography:** System font via Tailwind + JetBrains Mono for editor
+- **Patterns:** `bg-[#0a0a0a]` cards, `border-white/5` borders, `text-[10px] uppercase tracking-widest` labels, `backdrop-blur` effects
+- **Animations:** `animate-pulse` for live indicator, `glow-primary` for buttons, `nav-glow` for active sidebar items
+
+---
+
+## 4. Key Bugs Fixed (Completed)
+
+| Bug | Root Cause | Fix |
+|-----|-----------|-----|
+| **Monaco double-typing** | Server broadcasts via `socket.to()` excluding sender, so sender's `versionRef` stayed stale → next keystroke triggered `room:resync` | Added `versionRef.current += 1` after `socket.emit("room:edit")` in `useRoomSocket.ts` |
+| **Participant initials showing random chars** | `getInitials()` sliced first 2 chars of CUID userId | Changed to use `user.displayName` for current user, "U1"/"U2" for others |
+| **Dead buttons in room** | Share/Settings buttons had no onClick handlers | Share creates invite via API + shows modal. Settings opens room settings modal |
+| **Hardcoded mock data** | Dashboard and Room had fake rooms, participants, chat | Replaced with real API calls and socket data |
+
+---
+
+## 5. Current State & Known Issues
+
+### What Works
+- ✅ Auth flow (register, login, logout, auto-refresh)
+- ✅ Dashboard with real API data (owned/joined/public rooms)
+- ✅ Create room modal → API → dashboard refresh
+- ✅ Room view with Monaco editor + real-time document sync
+- ✅ Bidirectional chat with auto-scroll
+- ✅ Participant presence via socket
+- ✅ Share modal with invite link + copy + expiry
+- ✅ Room Settings modal (room info, leave, delete with confirmation)
+- ✅ Connection state UI (connecting spinner, reconnecting banner, error overlay)
+- ✅ Profile page with plan stats
+- ✅ Plans/pricing page with 3 tiers
+- ✅ Sidebar with Profile, Pricing, Rooms, clickable logo
+- ✅ TopBar user dropdown (Profile, Room Settings, Log out)
+- ✅ Download button in TopBar
+- ✅ Auth page mode from URL query params (`?mode=signup`)
+- ✅ Privacy, Terms, 404 pages
+
+### Known Issues / Incomplete
+- ⚠️ Sidebar "Settings" link is still `href="#"` (no settings page exists)
+- ⚠️ Profile "Active Sessions" stat shows plan limit (`maxActiveSessions`), not actual active session count
+- ⚠️ Participant list in room only shows display name for current user; others show "User 1", "User 2" (socket only sends `userId`, not `displayName`)
+- ⚠️ Download button in TopBar is wired but handler behavior not yet implemented
+- ⚠️ Landing page navbar still shows "Sign Up" / "Log In" even when user is authenticated
+
+### Constraints (User-Defined)
+- **No backend modifications** — all changes must be frontend-only
+- **No UI redesign** — maintain existing layout and visual style
+- **No feature expansion** — no file tree, git, debugger, search, terminal, friends, notifications
+- **No console.log** — production-standard code
+- **No placeholder content** — everything must use real data
+
+---
+
+## 6. File Tree (Current)
+
+### Frontend
+```
+collabcode-ui/src/
+├── app/
+│   ├── page.tsx                    # Landing page (18.9KB)
+│   ├── layout.tsx                  # Root layout with AuthProvider
+│   ├── globals.css                 # Global styles + Tailwind
+│   ├── not-found.tsx               # 404 page
+│   ├── NotFoundClient.tsx          # 404 client component
+│   ├── auth/
+│   │   ├── page.tsx
+│   │   └── AuthClient.tsx          # Login/signup with mode param
+│   ├── dashboard/
+│   │   ├── page.tsx
+│   │   └── DashboardClient.tsx     # Real API dashboard
+│   ├── room/[id]/
+│   │   ├── page.tsx
+│   │   └── RoomClient.tsx          # Monaco + socket + modals
+│   ├── profile/
+│   │   ├── page.tsx
+│   │   └── ProfileClient.tsx       # User profile + plan stats
+│   ├── plans/
+│   │   ├── page.tsx
+│   │   └── PlansClient.tsx         # 3-tier pricing
+│   ├── privacy/page.tsx            # Privacy policy
+│   └── terms/page.tsx              # Terms of service
+├── components/
+│   ├── TopBar.tsx                  # Room header with user dropdown
+│   ├── Sidebar.tsx                 # Dashboard nav sidebar
+│   ├── Modal.tsx                   # Reusable modal
+│   ├── Button.tsx                  # Styled button
+│   ├── Input.tsx                   # Styled input
+│   ├── RoomCard.tsx                # Dashboard room card
+│   ├── ParticipantAvatar.tsx       # Avatar circle
+│   ├── ChatMessage.tsx             # Chat bubble
+│   ├── Logo.tsx                    # Brand logo
+│   ├── Toggle.tsx                  # Toggle switch
+│   ├── ProtectedRoute.tsx          # Auth guard
+│   ├── StatusBadge.tsx
+│   ├── LanguageTag.tsx
+│   ├── ConsoleOutput.tsx
+│   └── index.ts                    # Barrel exports
+├── contexts/AuthContext.tsx         # Auth state + token management
+├── hooks/useRoomSocket.ts           # Socket.IO room hook
+├── lib/
+│   ├── api.ts                      # REST API client (authApi + roomApi)
+│   └── socket/socketClient.ts      # Socket.IO client factory
+└── styles/globals.css               # Additional styles
+```
+
+### Backend
+```
+collabcode-backend/src/
+├── app.ts                          # Express app setup
+├── server.ts                       # HTTP + Socket.IO server
+├── config/env.ts                   # Env config with zod
+├── controllers/
+│   ├── auth.controller.ts          # Auth handlers
+│   └── room.controller.ts          # Room handlers
+├── middleware/
+│   ├── authenticate.ts             # JWT auth
+│   ├── validate.ts                 # Zod validation
+│   └── errorHandler.ts             # Error handler
+├── routes/
+│   ├── auth.routes.ts
+│   ├── room.routes.ts
+│   └── index.ts
+├── services/
+│   ├── auth.service.ts             # Auth logic
+│   ├── room.service.ts             # Room CRUD + dashboard + invites
+│   └── message.service.ts          # Message persistence
+├── sockets/
+│   ├── index.ts                    # Socket init + auth
+│   ├── room.handler.ts             # Join/leave/chat/cursor
+│   ├── editor.handler.ts           # Edit + version check + resync
+│   └── room-store.ts               # In-memory rooms Map
+├── types/express.d.ts
+└── utils/
+    ├── jwt.ts
+    ├── hash.ts
+    ├── ApiError.ts
+    └── asyncHandler.ts
+```
