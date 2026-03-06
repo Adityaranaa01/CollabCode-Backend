@@ -28,4 +28,5 @@ npm-debug.log*
 # Docs (local only)
 # Docs (local only)
 *.md
+*.resolved
 !README.md
