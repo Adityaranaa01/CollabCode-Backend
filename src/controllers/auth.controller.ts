@@ -6,20 +6,22 @@ import { getRefreshTokenExpiryMs } from "../utils/jwt.js";
 import { prisma } from "../utils/prisma.js";
 
 function setRefreshCookie(res: Response, refreshToken: string): void {
+  const isProd = process.env.NODE_ENV === "production";
   res.cookie("refreshToken", refreshToken, {
     httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
-    sameSite: "strict",
+    secure: isProd,
+    sameSite: isProd ? "none" : "lax",
     path: "/api/v1/auth",
     maxAge: getRefreshTokenExpiryMs(),
   });
 }
 
 function clearRefreshCookie(res: Response): void {
+  const isProd = process.env.NODE_ENV === "production";
   res.clearCookie("refreshToken", {
     httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
-    sameSite: "strict",
+    secure: isProd,
+    sameSite: isProd ? "none" : "lax",
     path: "/api/v1/auth",
   });
 }
