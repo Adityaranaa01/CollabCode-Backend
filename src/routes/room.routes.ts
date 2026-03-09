@@ -17,6 +17,7 @@ const createRoomSchema = z.object({
     .min(1, "Language is required")
     .max(50, "Language must be at most 50 characters"),
   isPublic: z.boolean().optional().default(false),
+  initialContent: z.string().max(50000).optional().default(""),
 });
 
 const joinByInviteSchema = z.object({

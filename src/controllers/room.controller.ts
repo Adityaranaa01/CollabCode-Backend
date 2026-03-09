@@ -20,12 +20,13 @@ export async function createRoom(
   try {
     if (!req.user) throw ApiError.unauthorized();
 
-    const { name, language, isPublic } = req.body;
+    const { name, language, isPublic, initialContent } = req.body;
     const room = await roomService.createRoom(
       req.user.userId,
       name,
       language,
-      isPublic ?? false
+      isPublic ?? false,
+      initialContent ?? ""
     );
 
     res.status(201).json({ success: true, data: room });

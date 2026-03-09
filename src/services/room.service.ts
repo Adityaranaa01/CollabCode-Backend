@@ -10,7 +10,8 @@ export async function createRoom(
   ownerId: string,
   name: string,
   language: string,
-  isPublic: boolean
+  isPublic: boolean,
+  initialContent: string = ""
 ) {
   const user = await prisma.user.findUnique({
     where: { id: ownerId },
@@ -36,7 +37,7 @@ export async function createRoom(
     });
 
     await tx.codeDocument.create({
-      data: { roomId: newRoom.id, content: "", version: 0 },
+      data: { roomId: newRoom.id, content: initialContent, version: 0 },
     });
 
     await tx.roomMembership.create({
