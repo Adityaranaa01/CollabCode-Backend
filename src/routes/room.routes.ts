@@ -27,11 +27,16 @@ const roomIdParamsSchema = z.object({
   id: z.string().min(1, "Room ID is required"),
 });
 
+const joinByIdSchema = z.object({
+  roomId: z.string().min(1, "Room ID is required").trim(),
+});
+
 router.use(authenticate);
 
 router.post("/", validate(createRoomSchema), roomController.createRoom);
 router.get("/dashboard", roomController.getDashboard);
 router.post("/join-by-invite", validate(joinByInviteSchema), roomController.joinByInvite);
+router.post("/join-by-id", validate(joinByIdSchema), roomController.joinById);
 
 router.get("/:id", validate(roomIdParamsSchema, "params"), roomController.getRoom);
 router.delete("/:id", validate(roomIdParamsSchema, "params"), roomController.deleteRoom);

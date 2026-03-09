@@ -131,6 +131,10 @@ export async function createInvite(userId: string, roomId: string) {
     throw ApiError.forbidden("Only the room owner can create invites");
   }
 
+  await prisma.roomInvite.deleteMany({
+    where: { roomId },
+  });
+
   const rawToken = crypto.randomBytes(32).toString("hex");
   const tokenHash = sha256(rawToken);
 
@@ -195,6 +199,49 @@ export async function joinByInvite(userId: string, rawToken: string) {
         roomId: invite.roomId,
         role: MemberRole.MEMBER,
       },
+      include: {
+        room: {
+          select: { id: true, name: true, language: true },
+        },
+      },
+    });
+  });
+}
+
+export async function joinById(userId: string, roomId: string) {
+  const room = await prisma.room.findUnique({
+    where: { id: roomId },
+    include: {
+      owner: { include: { plan: true } },
+    },
+  });
+
+  if (!room) {
+    throw ApiError.notFound("Room not found");
+  }
+
+  const existingMembership = await prisma.roomMembership.findUnique({
+    where: { userId_roomId: { userId, roomId } },
+    include: {
+      room: {
+        select: { id: true, name: true, language: true },
+      },
+    },
+  });
+
+  if (existingMembership) {
+    return existingMembership;
+  }
+
+  if (!room.isPublic) {
+    throw ApiError.forbidden("This is a private room. You need an invitation to join.");
+  }
+
+  return prisma.$transaction(async (tx) => {
+    await enforceJoinLimits(tx, userId, roomId, room.owner.plan.maxMembersPerRoom);
+
+    return tx.roomMembership.create({
+      data: { userId, roomId, role: MemberRole.MEMBER },
       include: {
         room: {
           select: { id: true, name: true, language: true },

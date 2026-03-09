@@ -126,6 +126,26 @@ export async function joinByInvite(
   }
 }
 
+export async function joinById(
+  req: AuthenticatedRequest,
+  res: Response,
+  next: NextFunction
+): Promise<void> {
+  try {
+    if (!req.user) throw ApiError.unauthorized();
+
+    const { roomId } = req.body;
+    if (!roomId || typeof roomId !== "string") {
+      throw ApiError.badRequest("Room ID is required");
+    }
+
+    const membership = await roomService.joinById(req.user.userId, roomId.trim());
+    res.status(200).json({ success: true, data: membership });
+  } catch (error) {
+    next(error);
+  }
+}
+
 export async function removeMember(
   req: AuthenticatedRequest,
   res: Response,
