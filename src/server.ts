@@ -3,6 +3,7 @@ import app from "./app.js";
 import { env } from "./config/env.js";
 import { initializeSocket } from "./sockets/index.js";
 import { cleanupExpiredTokens } from "./services/auth.service.js";
+import { logger } from "./utils/logger.js";
 
 const server = http.createServer(app);
 const io = initializeSocket(server);
@@ -14,23 +15,23 @@ const cleanupInterval = setInterval(async () => {
   try {
     const count = await cleanupExpiredTokens();
     if (count > 0) {
-      console.log(`[Cleanup] Removed ${count} expired refresh token(s)`);
+      logger.info({ count }, "Removed expired refresh tokens");
     }
   } catch (error) {
-    console.error("[Cleanup] Failed to remove expired tokens:", error);
+    logger.error(error, "Failed to remove expired tokens");
   }
 }, CLEANUP_INTERVAL_MS);
 
 server.listen(env.PORT, () => {
-  console.log(`[Server] Running on port ${env.PORT} (${env.NODE_ENV})`);
+  logger.info({ port: env.PORT, env: env.NODE_ENV }, "Server started");
 });
 
 const gracefulShutdown = () => {
-  console.log("[Server] Shutting down...");
+  logger.info("Shutting down gracefully...");
   clearInterval(cleanupInterval);
   io.close(() => {
     server.close(() => {
-      console.log("[Server] Closed.");
+      logger.info("Server closed");
       process.exit(0);
     });
   });
@@ -38,3 +39,4 @@ const gracefulShutdown = () => {
 
 process.on("SIGINT", gracefulShutdown);
 process.on("SIGTERM", gracefulShutdown);
+

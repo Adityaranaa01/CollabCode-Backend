@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction } from "express";
 import { ApiError } from "../utils/ApiError.js";
+import { logger } from "../utils/logger.js";
 
 export function errorHandler(
   err: Error,
@@ -18,8 +19,8 @@ export function errorHandler(
     return;
   }
 
-  // Log unexpected errors
-  console.error("Unhandled error:", err);
+  // Log unexpected errors with full context
+  logger.error(err, "Unhandled error");
 
   res.status(500).json({
     success: false,
@@ -30,3 +31,4 @@ export function errorHandler(
     }),
   });
 }
+

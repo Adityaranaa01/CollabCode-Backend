@@ -1,4 +1,5 @@
 import { prisma } from "../utils/prisma.js";
+import { logger } from "../utils/logger.js";
 
 const PERSIST_DELAY_MS = 2500;
 
@@ -66,7 +67,7 @@ export async function persistRoom(roomId: string): Promise<void> {
       },
     });
   } catch (error) {
-    console.error(`[Store] Failed to persist document for room ${roomId}:`, error);
+    logger.error({ err: error, roomId }, "Failed to persist document");
   }
 }
 

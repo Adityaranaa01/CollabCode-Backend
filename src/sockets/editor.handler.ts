@@ -1,6 +1,7 @@
 import { Server } from "socket.io";
 import { AuthenticatedSocket } from "./index.js";
 import { activeRooms, schedulePersist } from "./room-store.js";
+import { logger } from "../utils/logger.js";
 
 const MAX_PATCH_SIZE = 50 * 1024; // 50KB
 
@@ -68,7 +69,7 @@ export function registerEditorHandlers(
 
         schedulePersist(data.roomId);
       } catch (error) {
-        console.error(`[Editor] edit error:`, error);
+        logger.error({ err: error, userId, event: "room:edit" }, "Editor edit failed");
         socket.emit("error", {
           event: "room:edit",
           message: "Failed to apply edit",

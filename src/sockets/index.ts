@@ -5,6 +5,7 @@ import { env } from "../config/env.js";
 import { registerRoomHandlers, handleLeaveRoom } from "./room.handler.js";
 import { registerEditorHandlers } from "./editor.handler.js";
 import { activeRooms } from "./room-store.js";
+import { logger } from "../utils/logger.js";
 
 interface AuthenticatedSocket extends Socket {
   data: {
@@ -47,13 +48,13 @@ export function initializeSocket(httpServer: HttpServer): Server {
   io.on("connection", (socket: Socket) => {
     const authSocket = socket as AuthenticatedSocket;
     const userId = authSocket.data.userId;
-    console.log(`[Socket] User ${userId} connected (${authSocket.id})`);
+    logger.info({ userId, socketId: authSocket.id }, "Socket connected");
 
     registerRoomHandlers(io, authSocket);
     registerEditorHandlers(io, authSocket);
 
     socket.on("disconnect", async (reason) => {
-      console.log(`[Socket] User ${userId} disconnected: ${reason}`);
+      logger.info({ userId, reason }, "Socket disconnected");
 
       for (const [roomId, room] of activeRooms) {
         if (room.users.has(userId)) {
@@ -67,3 +68,4 @@ export function initializeSocket(httpServer: HttpServer): Server {
 }
 
 export type { AuthenticatedSocket };
+

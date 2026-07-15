@@ -7,6 +7,7 @@ import {
   getOrCreateRoom,
   persistAndRemoveRoom,
 } from "./room-store.js";
+import { logger } from "../utils/logger.js";
 
 const MAX_MESSAGE_LENGTH = 2000;
 const RATE_LIMIT_WINDOW_MS = 1000;
@@ -76,9 +77,9 @@ export function registerRoomHandlers(
         participants: getParticipants(roomId),
       });
 
-      console.log(`[Socket] User ${userId} joined room ${roomId}`);
+      logger.info({ userId, roomId }, "User joined room");
     } catch (error) {
-      console.error(`[Socket] room:join error:`, error);
+      logger.error({ err: error, userId, event: "room:join" }, "Room join failed");
       socket.emit("error", {
         event: "room:join",
         message: "Failed to join room",
@@ -92,7 +93,7 @@ export function registerRoomHandlers(
 
       await handleLeaveRoom(io, socket, userId, roomId);
     } catch (error) {
-      console.error(`[Socket] room:leave error:`, error);
+      logger.error({ err: error, userId, event: "room:leave" }, "Room leave failed");
     }
   });
 
@@ -123,7 +124,7 @@ export function registerRoomHandlers(
         const message = await createMessage(data.roomId, userId, content);
         io.to(`room:${data.roomId}`).emit("room:new-message", message);
       } catch (error) {
-        console.error(`[Socket] room:chat error:`, error);
+        logger.error({ err: error, userId, event: "room:chat" }, "Chat message failed");
         socket.emit("error", {
           event: "room:chat",
           message: "Failed to send message",
@@ -154,10 +155,10 @@ export async function handleLeaveRoom(
 
     if (room.users.size === 0) {
       await persistAndRemoveRoom(roomId);
-      console.log(`[Socket] Room ${roomId} emptied, persisted and unloaded`);
+      logger.info({ roomId }, "Room emptied, persisted and unloaded");
     }
   }
 
   await socket.leave(`room:${roomId}`);
-  console.log(`[Socket] User ${userId} left room ${roomId}`);
+  logger.info({ userId, roomId }, "User left room");
 }
