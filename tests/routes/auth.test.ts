@@ -24,6 +24,18 @@ vi.mock("../../src/utils/prisma.js", () => ({
   },
 }));
 
+// Mock Redis
+vi.mock("../../src/config/redis.js", () => ({
+  redis: {
+    ping: vi.fn().mockResolvedValue("PONG"),
+    on: vi.fn(),
+  },
+  createRedisClient: vi.fn().mockReturnValue({
+    on: vi.fn(),
+    subscribe: vi.fn(),
+  }),
+}));
+
 vi.mock("../../src/sockets/room-store.js", () => ({
   activeRooms: new Map(),
 }));

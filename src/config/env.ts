@@ -27,6 +27,9 @@ const envSchema = z.object({
   CLIENT_URL: z
     .string()
     .default("http://localhost:3000"),
+  REDIS_URL: z
+    .string()
+    .default("redis://localhost:6379"),
   NODE_ENV: z
     .enum(["development", "production", "test"])
     .default("development"),

@@ -1,7 +1,9 @@
 import { Server as HttpServer } from "http";
 import { Server, Socket } from "socket.io";
+import { createAdapter } from "@socket.io/redis-adapter";
 import { verifyAccessToken } from "../utils/jwt.js";
 import { env } from "../config/env.js";
+import { redis, createRedisClient } from "../config/redis.js";
 import { registerRoomHandlers, handleLeaveRoom } from "./room.handler.js";
 import { registerEditorHandlers } from "./editor.handler.js";
 import { activeRooms } from "./room-store.js";
@@ -23,6 +25,29 @@ export function initializeSocket(httpServer: HttpServer): Server {
     pingTimeout: 60000,
     pingInterval: 25000,
   });
+
+  /**
+   * Socket.IO Redis Adapter.
+   *
+   * This replaces Socket.IO's default in-memory adapter with Redis Pub/Sub.
+   * Without it, socket events are process-local — if Server A broadcasts to
+   * a room, clients connected to Server B never receive the event.
+   *
+   * The adapter requires TWO separate Redis connections:
+   * - pubClient: publishes events to Redis channels
+   * - subClient: subscribes to Redis channels and forwards to local sockets
+   *
+   * These MUST be separate connections because Redis's SUBSCRIBE command
+   * puts a connection into "subscriber mode" where it can only receive
+   * messages, not send commands. Using the same connection for both
+   * would deadlock.
+   *
+   * The main `redis` client is used for pub (it can still send commands),
+   * and a duplicate is created for sub.
+   */
+  const subClient = createRedisClient();
+  io.adapter(createAdapter(redis, subClient));
+  logger.info("Socket.IO Redis adapter attached");
 
   io.use((socket, next) => {
     const token =
@@ -68,4 +93,3 @@ export function initializeSocket(httpServer: HttpServer): Server {
 }
 
 export type { AuthenticatedSocket };
-

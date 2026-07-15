@@ -10,4 +10,5 @@ process.env.JWT_EXPIRES_IN = "15m";
 process.env.REFRESH_TOKEN_EXPIRES_IN = "7d";
 process.env.PORT = "4001";
 process.env.CLIENT_URL = "http://localhost:3000";
+process.env.REDIS_URL = "redis://localhost:6379";
 process.env.NODE_ENV = "test";

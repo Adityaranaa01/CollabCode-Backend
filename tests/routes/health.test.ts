@@ -9,6 +9,22 @@ vi.mock("../../src/utils/prisma.js", () => ({
   },
 }));
 
+// Mock Redis for health check
+vi.mock("../../src/config/redis.js", () => ({
+  redis: {
+    ping: vi.fn().mockResolvedValue("PONG"),
+    duplicate: vi.fn().mockReturnValue({
+      on: vi.fn(),
+      subscribe: vi.fn(),
+    }),
+    on: vi.fn(),
+  },
+  createRedisClient: vi.fn().mockReturnValue({
+    on: vi.fn(),
+    subscribe: vi.fn(),
+  }),
+}));
+
 // Mock room-store for activeRooms
 vi.mock("../../src/sockets/room-store.js", () => ({
   activeRooms: new Map(),
@@ -29,13 +45,15 @@ describe("Health Check Endpoints", () => {
   });
 
   describe("GET /api/v1/health/ready", () => {
-    it("returns 200 with health details when DB is up", async () => {
+    it("returns 200 with health details when all deps are up", async () => {
       const res = await request(app).get("/api/v1/health/ready");
 
       expect(res.status).toBe(200);
       expect(res.body.status).toBe("healthy");
       expect(res.body.checks.database.status).toBe("ok");
       expect(res.body.checks.database.latencyMs).toBeDefined();
+      expect(res.body.checks.redis.status).toBe("ok");
+      expect(res.body.checks.redis.latencyMs).toBeDefined();
       expect(res.body.metrics.activeRooms).toBe(0);
       expect(res.body.metrics.memoryUsageMB).toBeGreaterThan(0);
       expect(res.body.metrics.nodeVersion).toMatch(/^v\d+/);
@@ -55,6 +73,20 @@ describe("Health Check Endpoints", () => {
       expect(res.body.status).toBe("unhealthy");
       expect(res.body.checks.database.status).toBe("error");
       expect(res.body.checks.database.error).toContain("Connection refused");
+    });
+
+    it("returns 503 when Redis is down", async () => {
+      const { redis } = await import("../../src/config/redis.js");
+      vi.mocked(redis.ping).mockRejectedValueOnce(
+        new Error("Redis connection refused")
+      );
+
+      const res = await request(app).get("/api/v1/health/ready");
+
+      expect(res.status).toBe(503);
+      expect(res.body.status).toBe("unhealthy");
+      expect(res.body.checks.redis.status).toBe("error");
+      expect(res.body.checks.redis.error).toContain("Redis connection refused");
     });
   });
 
