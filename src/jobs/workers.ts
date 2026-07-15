@@ -8,18 +8,8 @@ const connectionConfig = { url: env.REDIS_URL, maxRetriesPerRequest: null };
 
 let maintenanceWorker: Worker | null = null;
 
-/**
- * Starts the BullMQ maintenance worker.
- *
- * The worker processes jobs from the "maintenance" queue. Each job
- * name maps to a specific maintenance function. This replaces the
- * previous setInterval-based approach with several advantages:
- *
- * 1. Survives restarts — jobs are persisted in Redis, not in-process timers
- * 2. Deduplicates — with multiple server instances, only one processes each job
- * 3. Retries — failed jobs are retried with exponential backoff (3 attempts)
- * 4. Observable — completed/failed jobs are stored in Redis for debugging
- */
+
+
 export function startWorkers(): void {
   maintenanceWorker = new Worker(
     "maintenance",
@@ -47,7 +37,7 @@ export function startWorkers(): void {
     },
     {
       connection: connectionConfig as any,
-      concurrency: 1,  // Maintenance jobs run sequentially — no need for parallelism
+      concurrency: 1,
     }
   );
 

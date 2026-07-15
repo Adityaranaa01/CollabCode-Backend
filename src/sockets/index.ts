@@ -26,25 +26,6 @@ export function initializeSocket(httpServer: HttpServer): Server {
     pingInterval: 25000,
   });
 
-  /**
-   * Socket.IO Redis Adapter.
-   *
-   * This replaces Socket.IO's default in-memory adapter with Redis Pub/Sub.
-   * Without it, socket events are process-local — if Server A broadcasts to
-   * a room, clients connected to Server B never receive the event.
-   *
-   * The adapter requires TWO separate Redis connections:
-   * - pubClient: publishes events to Redis channels
-   * - subClient: subscribes to Redis channels and forwards to local sockets
-   *
-   * These MUST be separate connections because Redis's SUBSCRIBE command
-   * puts a connection into "subscriber mode" where it can only receive
-   * messages, not send commands. Using the same connection for both
-   * would deadlock.
-   *
-   * The main `redis` client is used for pub (it can still send commands),
-   * and a duplicate is created for sub.
-   */
   const subClient = createRedisClient();
   io.adapter(createAdapter(redis, subClient));
   logger.info("Socket.IO Redis adapter attached");
